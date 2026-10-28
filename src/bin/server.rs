@@ -1,8 +1,9 @@
-use std::{collections::HashMap, println, sync::{Arc, Mutex}};
+use std::{collections::HashMap, sync::{Arc, Mutex}};
 use bytes::Bytes;
 use mini_redis::Frame;
 use my_redis::Connection;
 use tokio::net::{TcpListener, TcpStream};
+use my_redis::Result;
 
 type Db = Arc<Mutex<HashMap<String, Bytes>>>;
 #[tokio::main]
@@ -15,18 +16,20 @@ async fn main() {
 
         println!("Accept!");
         tokio::spawn(async move {
-            process(socket, db).await;
+            if let Err(e) = process(socket, db).await {
+                eprintln!("connection error: {e}");
+            }
         });
     }
 }
 
-async fn process(socket: TcpStream, db: Db) {
+async fn process(socket: TcpStream, db: Db)-> Result<()> {
     use mini_redis::Command::{self, Set, Get};
 
     let mut connection = Connection::new(socket);
 
-    while let Some(frame) = connection.read_frame().await.unwrap() {
-        let response = match Command::from_frame(frame).unwrap() {
+    while let Some(frame) = connection.read_frame().await? {
+        let response = match Command::from_frame(frame)? {
             Set(cmd) => {
                 let mut db = db.lock().unwrap();
                 db.insert(cmd.key().to_string(), cmd.value().clone());
@@ -40,8 +43,9 @@ async fn process(socket: TcpStream, db: Db) {
                     Frame::Null
                 }
             },
-            cmd => panic!("unimplemented command: {:?}", cmd),
+            cmd => Frame::Error(format!("ERR unimplemented command: {cmd:?}")),
         };
-        connection.write_frame(&response).await.unwrap();
+        connection.write_frame(&response).await?;
     }
+    Ok(())
 }

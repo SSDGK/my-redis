@@ -1,5 +1,3 @@
-use std::println;
-
 use bytes::Bytes;
 use mini_redis::client;
 use tokio::sync::{mpsc, oneshot};
